@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+const (
+	maxReadBlock = 1024
+)
 
 type HttpConn struct {
 	*sharedConn
@@ -64,15 +67,18 @@ func (hCrack *HttpCrack) SetRequestHandler(handler func(*Request) *Request){
 func (hCrack *HttpCrack) Read(p []byte) (n int, err error){
 	//先从缓冲区中读取
 	//再去读取request信息并更改存入缓冲区
-	if hCrack.vbuff.Len() > 0{
-		return hCrack.readBuffer(p)
+	n, err = hCrack.vbuff.Read(p)
+
+	if err != io.EOF{
+		return
+	}
+
+	//err == io.EOF
+    if hCrack.readErr != nil{
+    	return
 	}//if
 
-    err = hCrack.readFullRequest()
-
-    if err != nil{
-    	return
-	}
+	hCrack.readRequest()
 
 	return hCrack.readBuffer(p)
 }
@@ -87,20 +93,29 @@ func (hCrack *HttpCrack) readBuffer(p []byte) (n int, err error){
 }
 
 
-func (hCrack *HttpCrack) readFullRequest() (err error){
+func (hCrack *HttpCrack) readFullRequest(){
+	//read body
 	if hCrack.bodyLen > 0{
-		return hCrack.readRequestBody()
+		hCrack.readRequestBody()
 	}
 
-	return hCrack.readRequest()
+	//read header
+	hCrack.readRequest()
 }
 
 
-func (hCrack *HttpCrack) readRequest() (err error){
+func (hCrack *HttpCrack) readRequest(){
+	if hCrack.readErr != nil{
+		return
+	}//if
+
 	//不能修改Content-Length
     request, err := hCrack.txReader.ReadRequest()
 
-    if err != nil{return }
+    if err != nil{
+    	hCrack.readErr = err
+		return
+	}
 
     contentLen := request.ContentLength
     //将新的request写入到buff中
@@ -116,26 +131,36 @@ func (hCrack *HttpCrack) readRequest() (err error){
 	}//if
 	_, err = WriteRequest(request, hCrack.vbuff)
 	if err != nil{
+		hCrack.readErr = err
 		return
 	}//if
-	return nil
+	return
 }
 
-func (hCrack *HttpCrack) readRequestBody() (err error){
-	//todo 设置最大读取字节数
-    line, err := hCrack.txReader.ReadUntilN(hCrack.bodyLen)
+func (hCrack *HttpCrack) readRequestBody() {
+	var line []byte
+	var err error
+
+	if hCrack.bodyLen < maxReadBlock{
+		line, err = hCrack.txReader.ReadUntilN(hCrack.bodyLen)
+		hCrack.bodyLen = 0
+	}else{
+		line, err = hCrack.txReader.ReadUntilN(maxReadBlock)
+		hCrack.bodyLen -= maxReadBlock
+	}
+
 
     if err != nil{
+    	hCrack.readErr = err
     	return
 	}//if
 
 	_, err = hCrack.vbuff.Write(line)
 
 	if err != nil{
+		hCrack.readErr = err
 		return
 	}//if
 
-	hCrack.bodyLen = 0
-
-	return nil
+	return
 }
