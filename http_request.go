@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 )
 
 var unexpectHttpMsg = errors.New("unexpected http message")
+
 
 type Request struct {
 	Method string
@@ -24,6 +26,7 @@ type Request struct {
 	//-1表示不存在
 	ContentLength int
 
+	Query map[string][]string
 }
 
 func (r *Request) Header(key string) string{
@@ -161,7 +164,18 @@ func (tr *TextReader) ReadRequest() (request *Request, err error){
 		err = unexpectHttpMsg
 		return
 	}
+    //将uri解析为URL
+    var URL *url.URL
+    if URL, err = url.Parse(request.URI); err != nil{
+    	return nil, err
+	}
+    request.Query = URL.Query()
 
+    if request.URI, err = url.PathUnescape(request.URI); err != nil{
+    	return nil, err
+	}
+
+    //
 	//读header
 	request.header = make(map[string] string)
 	var (
@@ -218,7 +232,15 @@ func WriteRequest(request *Request, writer io.Writer) (int, error){
 		return writeRequestIntoBytesBuffer(w, request)
 	}
 	//
-    bytesStr := fmt.Sprintf("%s %s %s\r\n", request.Method, request.URI, request.Version)
+	// escape uri
+
+	baseURL, err := url.Parse(request.URI)
+	if err != nil{
+		return 0, err
+	}
+	baseURL.RawQuery = baseURL.Query().Encode()
+	escapeURL := baseURL.String()
+    bytesStr := fmt.Sprintf("%s %s %s\r\n", request.Method, escapeURL, request.Version)
 
     //写header
 

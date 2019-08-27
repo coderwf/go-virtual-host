@@ -48,15 +48,21 @@ type HttpCrack struct {
 	vbuff *bytes.Buffer
 	net.Conn
 	requestHandler func (*Request) *Request
+	Request *Request
 }
 
 
-func HTTPCRACK(conn net.Conn) *HttpCrack{
-	return &HttpCrack{
+func HTTPCRACK(conn net.Conn) (*HttpCrack, error){
+	crack := &HttpCrack{
 		Conn:conn,
 		txReader:NewTextReader(conn),
 		vbuff:bytes.NewBuffer(make([]byte, 0, 1024)),
 	}
+	crack.readRequest()
+	if crack.readErr != nil{
+		return nil, crack.readErr
+	}
+	return crack, nil
 }
 
 func (hCrack *HttpCrack) SetRequestHandler(handler func(*Request) *Request){
@@ -134,6 +140,7 @@ func (hCrack *HttpCrack) readRequest(){
 		hCrack.readErr = err
 		return
 	}//if
+	hCrack.Request = request
 	return
 }
 
